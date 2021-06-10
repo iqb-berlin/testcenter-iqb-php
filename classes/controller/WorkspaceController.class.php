@@ -232,8 +232,10 @@ class WorkspaceController extends Controller {
 
         if (($request->getHeaderLine('Accept') == 'text/csv') or $acceptWorkaround) {
 
+            $bom = "\xEF\xBB\xBF";
             $flatReports = array_map(function (SysCheckReportFile $report) {return $report->getFlat();}, $reports);
-            $response->getBody()->write(CSV::build($flatReports, [], $delimiter, $enclosure, $lineEnding));
+            $response->getBody()->write($bom . CSV::build($flatReports, [], $delimiter, $enclosure, $lineEnding));
+
             return $response->withHeader('Content-type', 'text/csv');
         }
 
