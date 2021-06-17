@@ -215,10 +215,162 @@ class WorkspaceController extends Controller {
     }
 
 
+    public static function getReports(Request $request, Response $response): Response {
+
+        $bom = "\xEF\xBB\xBF";
+        $delimiter = ';';
+        $enclosure = '"';
+        $lineEnding = '\n';
+
+        $type = $request->getParam('type');
+        $ids = explode(',', $request->getParam('ids', ''));
+        $workspaceId = (int)$request->getAttribute('ws_id');
+
+        switch ($type) {
+            case "systemCheck":
+
+                $sysChecks = new SysChecksFolder($workspaceId);
+                $reports = $sysChecks->collectSysCheckReports($ids);
+
+                if (($request->getHeaderLine('Accept') == 'text/csv')) {
+
+                    $flatReports = array_map(
+                        function(SysCheckReportFile $report) {
+
+                            return $report->getFlat();
+                        },
+                        $reports
+                    );
+                    $csv = CSV::build($flatReports, [], $delimiter, $enclosure, $lineEnding);
+                    //$csv = mb_convert_encoding($csv, 'UTF-16LE', 'UTF-8');
+                    //$bom = chr(255) . chr(254);
+
+                    $response->getBody()->write($bom . $csv);
+
+                    return $response->withHeader('Content-type', 'text/csv');
+                }
+
+                $reportsArrays = array_map(
+                    function(SysCheckReportFile $report) {
+
+                        return $report->get();
+                    },
+                    $reports
+                );
+
+                return $response->withJson($reportsArrays);
+
+            case "response":
+
+                $responseData = self::adminDAO()->getResponses($workspaceId, $ids);
+                if (!empty($responseData)) {
+                    $columnNames[] = [
+                        'groupname',
+                        'loginname',
+                        'code',
+                        'bookletname',
+                        'unitname',
+                        'responses',
+                        'restorePoint',
+                        'responseType',
+                        'response-ts',
+                        'restorePoint-ts',
+                        'laststate'
+                    ];
+                    $csv = CSV::build($responseData, $columnNames, $delimiter, $enclosure, $lineEnding);
+
+                    /*
+                    foreach($responseData as $resp) {
+                    $csv =
+                        '"' . $resp['groupname'] . '"' . $delimiter .
+                        '"' . $resp['loginname'] . '"' . $delimiter .
+                        '"' . $resp['code'] . '"' . $delimiter .
+                        '"' . $resp['bookletname'] . '"' . $delimiter .
+                        '"' . $resp['unitname'] . '"' . $delimiter;
+                    if (!empty($resp['responses'])) {
+                      $csv .= preg_replace('/"/g', '""', $resp['responses']) . $delimiter;
+                    } else {
+                      $csv .= $delimiter;
+                    }
+                    if (!empty($resp['restorepoint'])) {
+                      //$csv .= $resp['restorepoint'].replace(/\\"/g, '""') . $delimiter;
+                      $csv .= preg_replace('/"/g', '""',$resp['restorepoint']) . $delimiter;
+                    } else {
+                      $csv .= $delimiter;
+                    }
+                    if ($resp['responsetype']) {
+                      $csv .= '"' . $resp['responsetype'] . '"' . $delimiter;
+                    } else {
+                      $csv .= $delimiter;
+                    }
+                    $csv .= $resp['responses_ts'] . $delimiter . $resp['restorepoint_ts'] . $delimiter;
+                    if (!empty($resp['laststate'])) {
+                      $csv .= '"' . $resp['laststate']. '"' . $lineEnding;
+                    } else {
+                      $csv .= $lineEnding;
+                    }
+                    */
+                }
+                //$csv = mb_convert_encoding($csv, 'UTF-16LE', 'UTF-8');
+                //$bom = chr(255) . chr(254);
+
+                $response->getBody()->write($bom . $csv);
+
+                return $response->withHeader('Content-type', 'text/csv');
+
+            case "log":
+                return $response;
+            case "comment":
+                return $response;
+
+            default:
+                return $response;
+        }
+    }
+
+
+    function writeCSVResponse($reportHeader, $reportData) {
+
+        //Use tab as field separator
+        $newTab  = "\t";
+        $newLine  = "\n";
+
+        $fputcsv = count($reportHeader)
+            ? '"' . implode('"' . $newTab . '"', $reportHeader) . '"' . $newLine
+            : '';
+
+        // Loop over the * to export
+        if (! empty($reportData)) {
+            foreach($reportData as $item) {
+                $fputcsv .= '"'. implode('"'.$newTab.'"', $item).'"'.$newLine;
+            }
+        }
+
+        //Convert CSV to UTF-16
+        $encoded_csv = mb_convert_encoding($fputcsv, 'UTF-16LE', 'UTF-8');
+
+        // Output CSV-specific headers
+        /*
+        header('Set-Cookie: fileDownload=true; path=/'); //This cookie is needed in order to trigger the success window.
+        header("Pragma: public");
+        header("Expires: 0");
+        header("Cache-Control: must-revalidate, post-check=0, pre-check=0");
+        header("Cache-Control: private",false);
+        header("Content-Type: application/octet-stream");
+        header("Content-Disposition: attachment; filename=\"$filename.csv\";" );
+        header("Content-Transfer-Encoding: binary");
+        header('Content-Length: '. strlen($encoded_csv));
+        */
+
+        return chr(255) . chr(254) . $encoded_csv; //php array convert to csv/excel
+    }
+
+
     public static function getSysCheckReports(Request $request, Response $response): Response {
 
+        $bom = "\xEF\xBB\xBF";
+        $delimiter = ';';
         $checkIds = explode(',', $request->getParam('checkIds', ''));
-        $delimiter = $request->getParam('delimiter', ';');
         $lineEnding = $request->getParam('lineEnding', '\n');
         $enclosure = $request->getParam('enclosure', '"');
 
@@ -232,7 +384,6 @@ class WorkspaceController extends Controller {
 
         if (($request->getHeaderLine('Accept') == 'text/csv') or $acceptWorkaround) {
 
-            $bom = "\xEF\xBB\xBF";
             $flatReports = array_map(function (SysCheckReportFile $report) {return $report->getFlat();}, $reports);
             $response->getBody()->write($bom . CSV::build($flatReports, [], $delimiter, $enclosure, $lineEnding));
 

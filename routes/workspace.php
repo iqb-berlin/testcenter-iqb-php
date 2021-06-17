@@ -35,6 +35,9 @@ $app->group('/workspace', function(App $app) {
     $app->delete('/{ws_id}/files', [WorkspaceController::class, 'deleteFiles'])
         ->add(new IsWorkspacePermitted('RW'));
 
+    $app->get('/{ws_id}/reports', [WorkspaceController::class, 'getReports'])
+        ->add(new IsWorkspacePermitted('RO'));
+
     $app->get('/{ws_id}/sys-check/reports', [WorkspaceController::class, 'getSysCheckReports'])
         ->add(new IsWorkspacePermitted('RO'));
 
