@@ -220,7 +220,7 @@ class WorkspaceController extends Controller {
         $bom = "\xEF\xBB\xBF";
         $delimiter = ';';
         $enclosure = '"';
-        $lineEnding = '\n';
+        $lineEnding = "\n";
 
         $type = $request->getParam('type');
         $ids = explode(',', $request->getParam('ids', ''));
@@ -262,65 +262,146 @@ class WorkspaceController extends Controller {
 
             case "response":
 
-                $responseData = self::adminDAO()->getResponses($workspaceId, $ids);
+                $csv = [];
+                $responseData = self::adminDAO()->getCSVReportResponses($workspaceId, $ids);
+
                 if (!empty($responseData)) {
-                    $columnNames[] = [
-                        'groupname',
-                        'loginname',
-                        'code',
-                        'bookletname',
-                        'unitname',
-                        'responses',
-                        'restorePoint',
-                        'responseType',
-                        'response-ts',
-                        'restorePoint-ts',
-                        'laststate'
-                    ];
-                    $csv = CSV::build($responseData, $columnNames, $delimiter, $enclosure, $lineEnding);
 
+                    //$csv = CSV::build($responseData, [], $delimiter, $enclosure, $lineEnding);
+
+                    $csvHeader = implode($delimiter, CSV::collectColumnNamesFromHeterogeneousObjects($responseData));
                     /*
-                    foreach($responseData as $resp) {
-                    $csv =
-                        '"' . $resp['groupname'] . '"' . $delimiter .
-                        '"' . $resp['loginname'] . '"' . $delimiter .
-                        '"' . $resp['code'] . '"' . $delimiter .
-                        '"' . $resp['bookletname'] . '"' . $delimiter .
-                        '"' . $resp['unitname'] . '"' . $delimiter;
-                    if (!empty($resp['responses'])) {
-                      $csv .= preg_replace('/"/g', '""', $resp['responses']) . $delimiter;
-                    } else {
-                      $csv .= $delimiter;
-                    }
-                    if (!empty($resp['restorepoint'])) {
-                      //$csv .= $resp['restorepoint'].replace(/\\"/g, '""') . $delimiter;
-                      $csv .= preg_replace('/"/g', '""',$resp['restorepoint']) . $delimiter;
-                    } else {
-                      $csv .= $delimiter;
-                    }
-                    if ($resp['responsetype']) {
-                      $csv .= '"' . $resp['responsetype'] . '"' . $delimiter;
-                    } else {
-                      $csv .= $delimiter;
-                    }
-                    $csv .= $resp['responses_ts'] . $delimiter . $resp['restorepoint_ts'] . $delimiter;
-                    if (!empty($resp['laststate'])) {
-                      $csv .= '"' . $resp['laststate']. '"' . $lineEnding;
-                    } else {
-                      $csv .= $lineEnding;
-                    }
+                    $csvHeader = implode(
+                        $delimiter,
+                        [
+                            'groupname',
+                            'loginname',
+                            'code',
+                            'bookletname',
+                            'unitname',
+                            'responses',
+                            'restorePoint',
+                            'responseType',
+                            'response-ts',
+                            'restorePoint-ts',
+                            'laststate'
+                        ]);
                     */
-                }
-                //$csv = mb_convert_encoding($csv, 'UTF-16LE', 'UTF-8');
-                //$bom = chr(255) . chr(254);
+                    array_push($csv, $csvHeader);
 
-                $response->getBody()->write($bom . $csv);
+                    foreach ($responseData as $resp) {
+                        $csvRow = implode($delimiter, $resp);
+                        /*
+                        $csvRow = implode(
+                            $delimiter,
+                            [
+                                $resp['groupname'],
+                                $resp['loginname'],
+                                $resp['code'],
+                                $resp['bookletname'],
+                                $resp['unitname'],
+                                $resp['responses'],
+                                //empty($resp['responses'])
+                                //    ? ""
+                                //    : preg_replace('/"/g', '"', $resp['responses']),
+                                $resp['restorePoint'],
+                                //empty($resp['restorePoint']
+                                //    ? ""
+                                //    : preg_replace('/"/g', '"', $resp['restorePoint'])),
+                                $resp['responseType']
+                                    ? '"' . $resp['responseType'] . '"'
+                                    : "",
+                                $resp['response-ts'],
+                                $resp['restorePoint-ts'],
+                                empty($resp['laststate'])
+                                    ? ""
+                                    : '"' . $resp['laststate'] . '"'
+                            ]);
+                        */
+
+                        array_push($csv, $csvRow);
+                    }
+
+                    $csv = implode($lineEnding, $csv);
+                    //$csv = mb_convert_encoding($csv, 'UTF-16LE', 'UTF-8');
+                    //$bom = chr(255) . chr(254);
+
+                    $csvReport = $bom . $csv;
+                    $response->getBody()->write($csvReport);
+                }
 
                 return $response->withHeader('Content-type', 'text/csv');
 
             case "log":
-                return $response;
-            case "comment":
+
+                $csv = [];
+                $logData = self::adminDAO()->getCSVReportLogs($workspaceId, $ids);
+
+                $csvHeader = implode($delimiter, ['groupname', 'loginname', 'code', 'bookletname', 'unitname', 'timestamp', 'logentry']);
+                //$csvHeader = implode($delimiter, CSV::collectColumnNamesFromHeterogeneousObjects($logData));
+
+                array_push($csv, $csvHeader);
+
+                if (!empty($logData)) {
+
+                    foreach ($logData as $log) {
+
+                        $csvRow = implode(
+                            $delimiter,
+                            [
+                                '"' . $log['groupname'] . '"',
+                                '"' . $log['loginname'] . '"',
+                                '"' . $log['code'] . '"',
+                                '"' . $log['bookletname'] . '"',
+                                '"' . $log['unitname'] . '"',
+                                '"' . $log['timestamp'] . '"',
+                                preg_replace("/\\\\/", '', $log['logentry'])
+                                //$log['logentry']
+                            ]
+                        );
+                        //$csvRow = implode($delimiter, $log);
+                        array_push($csv, $csvRow);
+                    }
+
+                    $csv = implode($lineEnding, $csv);
+                    //$csv = mb_convert_encoding($csv, 'UTF-16LE', 'UTF-8');
+                    //$bom = chr(255) . chr(254);
+
+                    $csvReport = $bom . $csv;
+                    $response->getBody()->write($csvReport);
+                }
+
+                return $response->withHeader('Content-type', 'text/csv');
+
+
+            case "review":
+
+                $reviewData = self::adminDAO()->getReviews($workspaceId, $ids);
+                $myCsvData = implode($delimiter,['groupname', 'loginname', 'code', 'bookletname', 'unitname', 'priority']);
+                /*
+                allCategories.forEach(s => {
+                myCsvData += 'category: ' + s + columnDelimiter;
+            });
+          myCsvData += 'reviewtime' + columnDelimiter + 'entry' + lineDelimiter;
+
+          responseData.forEach((resp: ReviewData) => {
+                if ((resp.entry !== null) && (resp.entry.length > 0)) {
+                    myCsvData += '"' + resp.groupname + '"' + columnDelimiter + '"' + resp.loginname + '"' +
+                        columnDelimiter + '"' + resp.code + '"' + columnDelimiter + '"' + resp.bookletname + '"' +
+                        columnDelimiter + '"' + resp.unitname + '"' + columnDelimiter  + '"' +
+                        resp.priority  + '"' + columnDelimiter;
+                    const resp_categories = resp.categories.split(' ');
+                    allCategories.forEach(s => {
+                        if (resp_categories.includes(s)) {
+                            myCsvData += '"X"' + columnDelimiter;
+                        } else {
+                            myCsvData += columnDelimiter;
+                        }
+                    });
+              myCsvData += '"' + resp.reviewtime + '"' + columnDelimiter  + '"' +  resp.entry  + '"' + lineDelimiter;
+            }
+            });
+          */
                 return $response;
 
             default:
