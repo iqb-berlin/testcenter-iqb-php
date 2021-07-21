@@ -215,25 +215,25 @@ class WorkspaceController extends Controller {
     }
 
 
-    public static function getReports(Request $request, Response $response): Response {
+    public static function getReports(Request $request, Response $response): ?Response {
 
         $bom = "\xEF\xBB\xBF";
         $delimiter = ';';
         $enclosure = '"';
         $lineEnding = "\n";
+        $csvCellFormat = "$enclosure%s$enclosure";
 
         $type = $request->getParam('type');
         $ids = explode(',', $request->getParam('ids', ''));
         $workspaceId = (int)$request->getAttribute('ws_id');
 
         switch ($type) {
-            case "systemCheck":
 
+            case "systemCheck":
                 $sysChecks = new SysChecksFolder($workspaceId);
                 $reports = $sysChecks->collectSysCheckReports($ids);
 
                 if (($request->getHeaderLine('Accept') == 'text/csv')) {
-
                     $flatReports = array_map(
                         function(SysCheckReportFile $report) {
 
@@ -261,12 +261,13 @@ class WorkspaceController extends Controller {
                 return $response->withJson($reportsArrays);
 
             case "response":
-
                 $csv = [];
                 $responseData = self::adminDAO()->getCSVReportResponses($workspaceId, $ids);
 
-                if (!empty($responseData)) {
+                if (empty($responseData)) {
+                    return null;
 
+                } else {
                     //$csv = CSV::build($responseData, [], $delimiter, $enclosure, $lineEnding);
 
                     $csvHeader = implode($delimiter, CSV::collectColumnNamesFromHeterogeneousObjects($responseData));
@@ -290,34 +291,23 @@ class WorkspaceController extends Controller {
                     array_push($csv, $csvHeader);
 
                     foreach ($responseData as $resp) {
-                        $csvRow = implode($delimiter, $resp);
-                        /*
+                        //$csvRow = implode($delimiter, $resp);
                         $csvRow = implode(
                             $delimiter,
                             [
-                                $resp['groupname'],
-                                $resp['loginname'],
-                                $resp['code'],
-                                $resp['bookletname'],
-                                $resp['unitname'],
-                                $resp['responses'],
-                                //empty($resp['responses'])
-                                //    ? ""
-                                //    : preg_replace('/"/g', '"', $resp['responses']),
-                                $resp['restorePoint'],
-                                //empty($resp['restorePoint']
-                                //    ? ""
-                                //    : preg_replace('/"/g', '"', $resp['restorePoint'])),
-                                $resp['responseType']
-                                    ? '"' . $resp['responseType'] . '"'
-                                    : "",
-                                $resp['response-ts'],
-                                $resp['restorePoint-ts'],
-                                empty($resp['laststate'])
-                                    ? ""
-                                    : '"' . $resp['laststate'] . '"'
-                            ]);
-                        */
+                                sprintf($csvCellFormat, $resp['groupname']),
+                                sprintf($csvCellFormat, $resp['loginname']),
+                                sprintf($csvCellFormat, $resp['code']),
+                                sprintf($csvCellFormat, $resp['bookletname']),
+                                sprintf($csvCellFormat, $resp['unitname']),
+                                preg_replace("/\\\\\"/", '""', $resp['responses']),
+                                preg_replace("/\\\\\"/", '""', $resp['restorePoint']),
+                                sprintf($csvCellFormat, $resp['responseType']),
+                                $resp['response-ts'],                           // TODO: use cell enclosure ?
+                                $resp['restorePoint-ts'],                       // TODO: use cell enclosure ?
+                                sprintf($csvCellFormat, $resp['laststate'])     // TODO: adjust cell format ?
+                            ]
+                        );
 
                         array_push($csv, $csvRow);
                     }
@@ -328,38 +318,50 @@ class WorkspaceController extends Controller {
 
                     $csvReport = $bom . $csv;
                     $response->getBody()->write($csvReport);
+
+                    return $response->withHeader('Content-type', 'text/csv');
                 }
 
-                return $response->withHeader('Content-type', 'text/csv');
-
             case "log":
-
                 $csv = [];
                 $logData = self::adminDAO()->getCSVReportLogs($workspaceId, $ids);
 
-                $csvHeader = implode($delimiter, ['groupname', 'loginname', 'code', 'bookletname', 'unitname', 'timestamp', 'logentry']);
-                //$csvHeader = implode($delimiter, CSV::collectColumnNamesFromHeterogeneousObjects($logData));
+                if (empty($logData)) {
+                    return null;
+                } else {
+                    //$csvHeader = implode($delimiter, CSV::collectColumnNamesFromHeterogeneousObjects($logData));
+                    $csvHeader = implode($delimiter, ['groupname', 'loginname', 'code', 'bookletname', 'unitname', 'timestamp', 'logentry']);
+                    /*
+                    $csvHeader = implode(
+                        $delimiter,
+                        [
+                            sprintf($csvCellFormat,"groupname"),
+                            sprintf($csvCellFormat, "loginname"),
+                            sprintf($csvCellFormat, "code"),
+                            sprintf($csvCellFormat, "bookletname"),
+                            sprintf($csvCellFormat, "unitname"),
+                            sprintf($csvCellFormat, "timestamp"),
+                            sprintf($csvCellFormat, "logentry")
+                        ]
+                    );      // TODO: Adjust column headers?
+                    */
 
-                array_push($csv, $csvHeader);
-
-                if (!empty($logData)) {
+                    array_push($csv, $csvHeader);
 
                     foreach ($logData as $log) {
-
                         $csvRow = implode(
                             $delimiter,
                             [
-                                '"' . $log['groupname'] . '"',
-                                '"' . $log['loginname'] . '"',
-                                '"' . $log['code'] . '"',
-                                '"' . $log['bookletname'] . '"',
-                                '"' . $log['unitname'] . '"',
-                                '"' . $log['timestamp'] . '"',
-                                preg_replace("/\\\\/", '', $log['logentry'])
-                                //$log['logentry']
+                                sprintf($csvCellFormat, $log['groupname']),
+                                sprintf($csvCellFormat, $log['loginname']),
+                                sprintf($csvCellFormat, $log['code']),
+                                sprintf($csvCellFormat, $log['bookletname']),
+                                sprintf($csvCellFormat, $log['unitname']),
+                                sprintf($csvCellFormat, $log['timestamp']),
+                                preg_replace("/\\\\\"/", '""', $log['logentry'])   // TODO: adjust replacement to '' && use cell enclosure ?
                             ]
                         );
-                        //$csvRow = implode($delimiter, $log);
+
                         array_push($csv, $csvRow);
                     }
 
@@ -369,81 +371,158 @@ class WorkspaceController extends Controller {
 
                     $csvReport = $bom . $csv;
                     $response->getBody()->write($csvReport);
+
+                    return $response->withHeader('Content-type', 'text/csv');
                 }
 
-                return $response->withHeader('Content-type', 'text/csv');
-
-
             case "review":
-
+                $csv = [];
                 $reviewData = self::adminDAO()->getReviews($workspaceId, $ids);
-                $myCsvData = implode($delimiter,['groupname', 'loginname', 'code', 'bookletname', 'unitname', 'priority']);
-                /*
-                allCategories.forEach(s => {
-                myCsvData += 'category: ' + s + columnDelimiter;
-            });
-          myCsvData += 'reviewtime' + columnDelimiter + 'entry' + lineDelimiter;
+                error_log(json_encode($reviewData));
 
-          responseData.forEach((resp: ReviewData) => {
-                if ((resp.entry !== null) && (resp.entry.length > 0)) {
-                    myCsvData += '"' + resp.groupname + '"' + columnDelimiter + '"' + resp.loginname + '"' +
-                        columnDelimiter + '"' + resp.code + '"' + columnDelimiter + '"' + resp.bookletname + '"' +
-                        columnDelimiter + '"' + resp.unitname + '"' + columnDelimiter  + '"' +
-                        resp.priority  + '"' + columnDelimiter;
-                    const resp_categories = resp.categories.split(' ');
-                    allCategories.forEach(s => {
-                        if (resp_categories.includes(s)) {
-                            myCsvData += '"X"' + columnDelimiter;
-                        } else {
-                            myCsvData += columnDelimiter;
+                if (empty($reviewData)) {
+                    return null;
+
+                } else {
+                    $categoryMap = [];
+
+                    foreach ($reviewData as $reviewEntry) {
+                        if (0 === count(array_keys($categoryMap, $reviewEntry['categories']))) {
+                            array_push($categoryMap, $reviewEntry['categories']);
                         }
+                    }
+
+                    error_log("categoryMap = " . json_encode($categoryMap));
+
+                    /*
+                      const allCategories: string[] = [];
+                      responseData.forEach((resp: ReviewData) => {
+                        resp.categories.split(' ').forEach(s => {
+                          const s_trimmed = s.trim();
+                          if (s_trimmed.length > 0) {
+                            if (!allCategories.includes(s_trimmed)) {
+                              allCategories.push(s_trimmed);
+                            }
+                          }
+                        });
+                      });
+                    */
+
+                    $columnNames = array_merge(
+                        [
+                            'groupname',
+                            'loginname',
+                            'code',
+                            'bookletname',
+                            'unitname',
+                            'priority'
+                        ],
+                        $categoryMap,
+                        [
+                            'reviewtime',
+                            'entry'
+                        ]
+                    );
+
+                    $csvHeader = implode($delimiter, $columnNames);
+                    /*
+                    $csvHeader = implode(
+                        $delimiter,
+                        [
+                            'groupname',
+                            'loginname',
+                            'code',
+                            'bookletname',
+                            'unitname',
+                            'priority',
+                            implode(",", sprintf($csvCellFormat, $categoryMap)),
+                            'reviewtime',
+                            'entry'
+                        ]
+                    );
+                    */
+
+                    array_push($csv, $csvHeader);
+
+                    /*
+                      const columnDelimiter = ';';
+                      const lineDelimiter = '\n';
+                      let myCsvData = 'groupname' + columnDelimiter + 'loginname' + columnDelimiter + 'code' + columnDelimiter +
+                          'bookletname' + columnDelimiter + 'unitname' + columnDelimiter +
+                          'priority' + columnDelimiter;
+                            allCategories.forEach(s => {
+                            myCsvData += 'category: ' + s + columnDelimiter;
+                        });
+                      myCsvData += 'reviewtime' + columnDelimiter + 'entry' + lineDelimiter;
+                    */
+
+                    foreach ($reviewData as $reviewEntry) {
+
+                        $categoryCellData = [];
+                        foreach ($categoryMap as $category) {
+                            if ($reviewEntry['categories'] === $category) {
+                                $categoryCellData[] = sprintf($csvCellFormat, 'X');
+                            } else {
+                                $categoryCellData[] = sprintf($csvCellFormat, '');
+                            }
+                        }
+                        error_log("categoryCellData = " . json_encode($categoryCellData));
+
+                        $csvRowData = array_merge(
+                            [
+                                sprintf($csvCellFormat, $reviewEntry['groupname']),
+                                sprintf($csvCellFormat, $reviewEntry['loginname']),
+                                sprintf($csvCellFormat, $reviewEntry['code']),
+                                sprintf($csvCellFormat, $reviewEntry['bookletname']),
+                                sprintf($csvCellFormat, $reviewEntry['unitname']),
+                                sprintf($csvCellFormat, $reviewEntry['priority'])
+                            ],
+                            $categoryCellData,
+                            [
+                                sprintf($csvCellFormat, $reviewEntry['reviewtime']),
+                                sprintf($csvCellFormat, $reviewEntry['entry'])
+                            ]
+                        );
+                        error_log("csvRowData = " . json_encode($csvRowData));
+
+                        $csvRow = implode($delimiter, $csvRowData);
+                        array_push($csv, $csvRow);
+
+                    }
+                    /*
+                  responseData.forEach((resp: ReviewData) => {
+                        if ((resp.entry !== null) && (resp.entry.length > 0)) {
+                            myCsvData += '"' + resp.groupname + '"' + columnDelimiter + '"' + resp.loginname + '"' +
+                                columnDelimiter + '"' + resp.code + '"' + columnDelimiter + '"' + resp.bookletname + '"' +
+                                columnDelimiter + '"' + resp.unitname + '"' + columnDelimiter  + '"' +
+                                resp.priority  + '"' + columnDelimiter;
+                            const resp_categories = resp.categories.split(' ');
+                            allCategories.forEach(s => {
+                                if (resp_categories.includes(s)) {
+                                    myCsvData += '"X"' + columnDelimiter;
+                                } else {
+                                    myCsvData += columnDelimiter;
+                                }
+                            });
+                      myCsvData += '"' + resp.reviewtime + '"' + columnDelimiter  + '"' +  resp.entry  + '"' + lineDelimiter;
+                    }
                     });
-              myCsvData += '"' + resp.reviewtime + '"' + columnDelimiter  + '"' +  resp.entry  + '"' + lineDelimiter;
-            }
-            });
-          */
-                return $response;
+                  */
+
+                    $csv = implode($lineEnding, $csv);
+                    //$csv = mb_convert_encoding($csv, 'UTF-16LE', 'UTF-8');
+                    //$bom = chr(255) . chr(254);
+
+                    $csvReport = $bom . $csv;
+                    $response->getBody()->write($csvReport);
+
+                    return $response->withHeader('Content-type', 'text/csv');
+                }
 
             default:
-                return $response;
+                return null;
+
         }
-    }
-
-
-    function writeCSVResponse($reportHeader, $reportData) {
-
-        //Use tab as field separator
-        $newTab  = "\t";
-        $newLine  = "\n";
-
-        $fputcsv = count($reportHeader)
-            ? '"' . implode('"' . $newTab . '"', $reportHeader) . '"' . $newLine
-            : '';
-
-        // Loop over the * to export
-        if (! empty($reportData)) {
-            foreach($reportData as $item) {
-                $fputcsv .= '"'. implode('"'.$newTab.'"', $item).'"'.$newLine;
-            }
-        }
-
-        //Convert CSV to UTF-16
-        $encoded_csv = mb_convert_encoding($fputcsv, 'UTF-16LE', 'UTF-8');
-
-        // Output CSV-specific headers
-        /*
-        header('Set-Cookie: fileDownload=true; path=/'); //This cookie is needed in order to trigger the success window.
-        header("Pragma: public");
-        header("Expires: 0");
-        header("Cache-Control: must-revalidate, post-check=0, pre-check=0");
-        header("Cache-Control: private",false);
-        header("Content-Type: application/octet-stream");
-        header("Content-Disposition: attachment; filename=\"$filename.csv\";" );
-        header("Content-Transfer-Encoding: binary");
-        header('Content-Length: '. strlen($encoded_csv));
-        */
-
-        return chr(255) . chr(254) . $encoded_csv; //php array convert to csv/excel
     }
 
 
